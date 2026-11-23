@@ -6,6 +6,8 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QListWidget>
+#include <QMenu>
+#include <QMenuBar>
 #include <QPushButton>
 #include <QSlider>
 #include <QSplitter>
@@ -42,19 +44,27 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     resize(1280, 800);
     setMinimumSize(900, 600);
 
+    auto *fileMenu = menuBar()->addMenu("文件");
+    fileMenu->addAction("新建场景集合");
+    fileMenu->addAction("保存");
+    fileMenu->addSeparator();
+    fileMenu->addAction("退出", this, &QWidget::close);
+    auto *editMenu = menuBar()->addMenu("编辑");
+    editMenu->addAction("撤销");
+    editMenu->addAction("重做");
+    auto *viewMenu = menuBar()->addMenu("视图");
+    viewMenu->addAction("重置界面");
+    menuBar()->addMenu("配置文件");
+    menuBar()->addMenu("场景集合");
+    menuBar()->addMenu("工具");
+    menuBar()->addMenu("帮助");
+
     auto *central = new QWidget(this);
     auto *root = new QVBoxLayout(central);
     root->setContentsMargins(10, 8, 10, 8);
     root->setSpacing(8);
 
     auto *topBar = new QHBoxLayout;
-    auto *menu = new QHBoxLayout;
-    for (const auto &name : {"文件", "编辑", "视图", "配置文件", "场景集合", "工具", "帮助"}) {
-        auto *item = new QPushButton(name, central);
-        item->setObjectName("menuItem");
-        menu->addWidget(item);
-    }
-    topBar->addLayout(menu);
     topBar->addSpacing(18);
     topBar->addWidget(toolButton("＋ 添加来源", central));
     topBar->addWidget(toolButton("⚙ 设置", central));
