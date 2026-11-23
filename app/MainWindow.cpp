@@ -1,6 +1,8 @@
 #include "MainWindow.h"
+#include "ScreenCaptureController.h"
 
 #include <QComboBox>
+#include <QAction>
 #include <QFrame>
 #include <QGridLayout>
 #include <QHBoxLayout>
@@ -40,6 +42,7 @@ QPushButton *toolButton(const QString &text, QWidget *parent)
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
 {
+    captureController = new ScreenCaptureController(this);
     setWindowTitle("MiniOBS");
     resize(1280, 800);
     setMinimumSize(900, 600);
@@ -59,45 +62,45 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     menuBar()->addMenu("工具");
     menuBar()->addMenu("帮助");
 
+    auto *sourceMenu = new QMenu(this);
+    screenCaptureAction = sourceMenu->addAction("屏幕捕获");
+    screenCaptureAction->setCheckable(true);
+    connect(screenCaptureAction, &QAction::triggered, this, [this](bool checked) {
+        if (checked)
+            startScreenCapture();
+        else
+            stopScreenCapture();
+    });
+
     auto *central = new QWidget(this);
     auto *root = new QVBoxLayout(central);
-    root->setContentsMargins(10, 8, 10, 8);
-    root->setSpacing(8);
+    root->setContentsMargins(5, 5, 5, 4);
+    root->setSpacing(5);
 
     auto *topBar = new QHBoxLayout;
-    topBar->addSpacing(18);
-    topBar->addWidget(toolButton("＋ 添加来源", central));
-    topBar->addWidget(toolButton("⚙ 设置", central));
+    auto *addSourceButton = toolButton("＋ 添加来源", central);
+    auto *addSourceMenu = new QMenu(addSourceButton);
+    addSourceMenu->addAction(screenCaptureAction);
+    addSourceButton->setMenu(addSourceMenu);
+    topBar->addWidget(addSourceButton);
+    topBar->addWidget(toolButton("⚙", central));
     topBar->addStretch();
     auto *live = new QLabel("●  未直播", central);
     live->setObjectName("liveBadge");
     topBar->addWidget(live);
     root->addLayout(topBar);
 
-    auto *body = new QSplitter(Qt::Horizontal, central);
-    body->setChildrenCollapsible(false);
-    auto *leftWorkspace = new QWidget(body);
-    auto *leftLayout = new QVBoxLayout(leftWorkspace);
-    leftLayout->setContentsMargins(0, 0, 0, 0);
-    leftLayout->setSpacing(8);
+    auto *mainSplit = new QSplitter(Qt::Vertical, central);
+    mainSplit->setChildrenCollapsible(false);
+    auto *previewWorkspace = new QWidget(mainSplit);
+    auto *previewWorkspaceLayout = new QVBoxLayout(previewWorkspace);
+    previewWorkspaceLayout->setContentsMargins(0, 0, 0, 0);
+    previewWorkspaceLayout->setSpacing(0);
 
     auto *scenes = new QListWidget;
     scenes->setObjectName("listPanel");
     scenes->addItems({"主场景", "Starting Soon", "游戏", "聊天", "结束直播"});
     scenes->setCurrentRow(0);
-    auto *sceneArea = new QWidget;
-    auto *sceneLayout = new QVBoxLayout(sceneArea);
-    sceneLayout->setContentsMargins(8, 8, 8, 8);
-    sceneLayout->addWidget(scenes);
-    auto *sceneActions = new QHBoxLayout;
-    sceneActions->addWidget(toolButton("＋", sceneArea));
-    sceneActions->addWidget(toolButton("－", sceneArea));
-    sceneActions->addWidget(toolButton("⚙", sceneArea));
-    sceneLayout->addLayout(sceneActions);
-    auto *bottomWorkspace = new QSplitter(Qt::Horizontal, leftWorkspace);
-    bottomWorkspace->setChildrenCollapsible(false);
-    bottomWorkspace->addWidget(panel("场景", sceneArea, bottomWorkspace));
-
     auto *previewArea = new QWidget;
     previewArea->setObjectName("previewArea");
     auto *previewLayout = new QVBoxLayout(previewArea);
@@ -113,33 +116,46 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     canvas->setObjectName("canvas");
     canvas->setMinimumSize(320, 220);
     auto *canvasLayout = new QVBoxLayout(canvas);
-    auto *placeholder = new QLabel("预览画布\n\n添加来源以开始构建场景", canvas);
-    placeholder->setObjectName("canvasPlaceholder");
-    placeholder->setAlignment(Qt::AlignCenter);
-    canvasLayout->addWidget(placeholder);
-    previewLayout->addWidget(canvas, 1, Qt::AlignCenter);
+    previewLabel = new QLabel("预览画布\n\n从「添加来源」选择「屏幕捕获」", canvas);
+    previewLabel->setObjectName("canvasPlaceholder");
+    previewLabel->setAlignment(Qt::AlignCenter);
+    previewLabel->setMinimumSize(320, 220);
+    previewLabel->setScaledContents(false);
+    canvasLayout->addWidget(previewLabel);
+    previewLayout->addWidget(canvas, 1);
     auto *canvasFooter = new QHBoxLayout;
     canvasFooter->addWidget(new QLabel("1920 × 1080", previewArea));
     canvasFooter->addStretch();
     canvasFooter->addWidget(new QLabel("缩放  100%", previewArea));
     previewLayout->addLayout(canvasFooter);
-    auto *previewPanel = panel("视频预览", previewArea, leftWorkspace);
-    leftLayout->addWidget(previewPanel, 7);
+    previewWorkspaceLayout->addWidget(previewArea, 1);
+
+    auto *selectionBar = new QWidget(mainSplit);
+    selectionBar->setObjectName("selectionBar");
+    auto *selectionLayout = new QHBoxLayout(selectionBar);
+    selectionLayout->setContentsMargins(12, 6, 12, 6);
+    selectionLayout->addWidget(new QLabel("未选择来源", selectionBar), 1);
+    selectionLayout->addWidget(toolButton("⚙ 属性", selectionBar));
+    selectionLayout->addWidget(toolButton("▤ 滤镜", selectionBar));
+    mainSplit->addWidget(previewWorkspace);
+    mainSplit->addWidget(selectionBar);
+    mainSplit->setStretchFactor(0, 7);
+    mainSplit->setStretchFactor(1, 1);
 
     auto *sources = new QListWidget;
     sources->setObjectName("listPanel");
     sources->addItems({"显示器采集", "麦克风 / 辅助音频", "桌面音频"});
     auto *sourceArea = new QWidget;
     auto *sourceLayout = new QVBoxLayout(sourceArea);
-    sourceLayout->setContentsMargins(8, 8, 8, 8);
+    sourceLayout->setContentsMargins(5, 5, 5, 5);
     sourceLayout->addWidget(sources);
     auto *sourceActions = new QHBoxLayout;
     sourceActions->addWidget(toolButton("＋", sourceArea));
-    sourceActions->addWidget(toolButton("－", sourceArea));
+    sourceActions->addWidget(toolButton("▤", sourceArea));
     sourceActions->addWidget(toolButton("↑", sourceArea));
     sourceActions->addWidget(toolButton("↓", sourceArea));
+    sourceActions->addStretch();
     sourceLayout->addLayout(sourceActions);
-    bottomWorkspace->addWidget(panel("来源", sourceArea, bottomWorkspace));
 
     auto *mixerContent = new QWidget;
     auto *mixerLayout = new QVBoxLayout(mixerContent);
@@ -165,43 +181,59 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
         channels->addWidget(channel, 1);
     }
     mixerLayout->addLayout(channels);
-    bottomWorkspace->addWidget(panel("音频混音器", mixerContent, bottomWorkspace));
-    bottomWorkspace->setStretchFactor(0, 2);
-    bottomWorkspace->setStretchFactor(1, 3);
-    bottomWorkspace->setStretchFactor(2, 5);
-    leftLayout->addWidget(bottomWorkspace, 3);
-    body->addWidget(leftWorkspace);
+    auto *dockArea = new QSplitter(Qt::Horizontal, mainSplit);
+    dockArea->setChildrenCollapsible(false);
+    auto *sceneArea = new QWidget;
+    auto *sceneLayout = new QVBoxLayout(sceneArea);
+    sceneLayout->setContentsMargins(5, 5, 5, 5);
+    sceneLayout->addWidget(scenes);
+    auto *sceneActions = new QHBoxLayout;
+    sceneActions->addWidget(toolButton("＋", sceneArea));
+    sceneActions->addWidget(toolButton("▤", sceneArea));
+    sceneActions->addWidget(toolButton("↑", sceneArea));
+    sceneActions->addWidget(toolButton("↓", sceneArea));
+    sceneActions->addStretch();
+    sceneLayout->addLayout(sceneActions);
+    dockArea->addWidget(panel("场景", sceneArea, dockArea));
+    dockArea->addWidget(panel("来源", sourceArea, dockArea));
+    dockArea->addWidget(panel("音频混音器", mixerContent, dockArea));
+
+    auto *transitionContent = new QWidget;
+    auto *transitionLayout = new QVBoxLayout(transitionContent);
+    transitionLayout->setContentsMargins(6, 6, 6, 6);
+    auto *transition = new QComboBox(transitionContent);
+    transition->addItems({"淡入淡出", "切换"});
+    transitionLayout->addWidget(transition);
+    transitionLayout->addWidget(new QLabel("时长  300 毫秒", transitionContent));
+    auto *transitionActions = new QHBoxLayout;
+    transitionActions->addStretch();
+    transitionActions->addWidget(toolButton("＋", transitionContent));
+    transitionActions->addWidget(toolButton("▤", transitionContent));
+    transitionLayout->addLayout(transitionActions);
+    dockArea->addWidget(panel("场景转场", transitionContent, dockArea));
 
     auto *controlContent = new QWidget;
     auto *controlLayout = new QVBoxLayout(controlContent);
-    controlLayout->setContentsMargins(10, 10, 10, 10);
-    controlLayout->setSpacing(10);
-    controlLayout->addWidget(new QLabel("直播", controlContent));
-    controlLayout->addWidget(toolButton("设置直播信息", controlContent));
-    controlLayout->addWidget(new QLabel("录制", controlContent));
-    auto *recordPath = new QLabel("保存位置\n~/Movies", controlContent);
-    recordPath->setObjectName("mutedLabel");
-    controlLayout->addWidget(recordPath);
-    controlLayout->addWidget(new QLabel("场景转场", controlContent));
-    auto *transition = new QComboBox(controlContent);
-    transition->addItems({"淡入淡出", "切换"});
-    controlLayout->addWidget(transition);
-    controlLayout->addWidget(toolButton("工作室模式", controlContent));
-    controlLayout->addStretch();
-    body->addWidget(panel("控制面板", controlContent, body));
-    body->setStretchFactor(0, 5);
-    body->setStretchFactor(1, 1);
-    root->addWidget(body, 1);
-
-    auto *controls = new QHBoxLayout;
-    auto *startStream = toolButton("开始直播", central);
+    controlLayout->setContentsMargins(8, 8, 8, 8);
+    auto *startStream = toolButton("开始直播", controlContent);
     startStream->setObjectName("primaryButton");
-    auto *startRecord = toolButton("开始录制", central);
+    auto *startRecord = toolButton("开始录制", controlContent);
     startRecord->setObjectName("primaryButton");
-    controls->addWidget(startStream);
-    controls->addWidget(startRecord);
-    controls->addStretch();
-    root->addLayout(controls);
+    controlLayout->addWidget(startStream);
+    controlLayout->addWidget(startRecord);
+    controlLayout->addWidget(toolButton("虚拟摄像头", controlContent));
+    controlLayout->addWidget(toolButton("工作室模式", controlContent));
+    controlLayout->addWidget(toolButton("设置", controlContent));
+    controlLayout->addStretch();
+    dockArea->addWidget(panel("控制", controlContent, dockArea));
+    dockArea->setStretchFactor(0, 2);
+    dockArea->setStretchFactor(1, 2);
+    dockArea->setStretchFactor(2, 4);
+    dockArea->setStretchFactor(3, 2);
+    dockArea->setStretchFactor(4, 2);
+    mainSplit->addWidget(dockArea);
+    mainSplit->setStretchFactor(2, 3);
+    root->addWidget(mainSplit, 1);
 
     setCentralWidget(central);
     statusBar()->showMessage("就绪  ·  配置文件：未命名  ·  场景集合：默认");
@@ -219,7 +251,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
         #previewArea { background: #26282b; }
         #mutedLabel { color: #9da1a8; }
         #canvas { background: #101113; border: 1px solid #414349; }
-        #canvasPlaceholder { color: #737780; font-size: 15px; }
+        #canvasPlaceholder { color: #737780; font-size: 15px; background: transparent; }
         QPushButton, QComboBox { background: #34363a; border: 1px solid #46484d; border-radius: 4px; padding: 6px 10px; }
         QPushButton:hover, QComboBox:hover { background: #414349; }
         #toolButton { min-width: 28px; padding: 5px 8px; }
@@ -229,4 +261,29 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
         QStatusBar { background: #1b1c1f; color: #92969e; border-top: 1px solid #383a3e; }
         QSplitter::handle { background: #1d1f22; width: 5px; }
     )");
+
+    connect(captureController, &ScreenCaptureController::frameReady, this, [this](const QImage &image) {
+        previewLabel->setPixmap(QPixmap::fromImage(image).scaled(previewLabel->size(), Qt::KeepAspectRatio,
+                                                                  Qt::SmoothTransformation));
+    });
+    connect(captureController, &ScreenCaptureController::captureError, this, [this](const QString &message) {
+        screenCaptureAction->setChecked(false);
+        previewLabel->setText(QStringLiteral("屏幕捕获失败\n\n%1").arg(message));
+    });
+    connect(captureController, &ScreenCaptureController::captureStopped, this, [this]() {
+        screenCaptureAction->setChecked(false);
+        previewLabel->setPixmap(QPixmap());
+        previewLabel->setText("预览画布\n\n从「添加来源」选择「屏幕捕获」");
+    });
+}
+
+void MainWindow::startScreenCapture()
+{
+    previewLabel->setText("正在请求屏幕录制权限…");
+    captureController->start();
+}
+
+void MainWindow::stopScreenCapture()
+{
+    captureController->stop();
 }

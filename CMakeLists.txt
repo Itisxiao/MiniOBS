@@ -18,6 +18,8 @@ qt_add_executable(MiniOBS
     main.cpp
     app/MainWindow.h
     app/MainWindow.cpp
+    app/ScreenCaptureController.h
+    app/ScreenCaptureController.mm
 )
 
 target_link_libraries(MiniOBS PRIVATE
@@ -29,6 +31,7 @@ target_include_directories(MiniOBS PRIVATE
 )
 
 if(APPLE)
+    set_source_files_properties(app/ScreenCaptureController.mm PROPERTIES COMPILE_FLAGS "-fobjc-arc")
     target_link_libraries(MiniOBS PRIVATE
         "-framework ScreenCaptureKit"
         "-framework CoreMedia"
